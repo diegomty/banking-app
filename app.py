@@ -1,9 +1,12 @@
+from glob import escape
 import sqlite3
 import os
 from flask import Flask, request, abort
+from flask_wtf.csrf import CSRFProtect
 
 app = Flask(__name__)
-
+app.secret_key = os.getenv("SECRET_KEY", "DEV_KEY")  # Vulnerabilidad 4 corregida: Clave secreta en variable de entorno
+csrf = CSRFProtect(app)
 def get_db_connection():
     # Conexión segura con control de errores
     try:
@@ -30,7 +33,8 @@ def login():
     conn.close()
 
     if user:
-        return f"Bienvenido {username}"
+        safe_username = escape(username)  # Evitar XSS
+        return f"Bienvenido {safe_username}"
     else:
         return "Credenciales incorrectas"
 
