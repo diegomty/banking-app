@@ -1,38 +1,71 @@
 import sqlite3
-from flask import Flask, request
+import os
+from flask import Flask, request, abort
+
 app = Flask(__name__)
-# Conexión a la base de datos
+
 def get_db_connection():
-    conn = sqlite3.connect("bank.db")
-    return conn
+    # Conexión segura con control de errores
+    try:
+        conn = sqlite3.connect("bank.db")
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception as e:
+        print("Error en la conexión a la base de datos:", e)
+        abort(500)
+
 @app.route("/login", methods=["POST"])
 def login():
-    username = request.form["username"]
-    password = request.form["password"]
-    # ❌ Vulnerabilidad 1: Concatenación directa en consulta SQL (SQL Injection)
-    query = f"SELECT * FROM users WHERE username = '{username}' AND password = '{password}'"
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+
+    # Vulnerabilidad 1 corregida: Uso de consultas parametrizadas
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(query)  
+    cursor.execute(
+        "SELECT * FROM users WHERE username = ? AND password = ?",
+        (username, password)
+    )
     user = cursor.fetchone()
+    conn.close()
+
     if user:
         return f"Bienvenido {username}"
     else:
         return "Credenciales incorrectas"
+
 @app.route("/transfer", methods=["POST"])
 def transfer():
-    amount = request.form["amount"]
-    account = request.form["account"]
-    # ❌ Vulnerabilidad 2: Falta de validación de entrada (input no controlado)
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(f"UPDATE accounts SET balance = balance - {amount} WHERE user = '{account}'")
-    conn.commit()
-    return "Transferencia realizada"
-# ❌ Vulnerabilidad 3: Exposición de credenciales sensibles en el código
-API_KEY = "12345-SECRET-HARDCODED-KEY"
+    try:
+        amount = float(request.form.get("amount", "0"))
+        account = request.form.get("account", "").strip()
+
+        # Validación de entrada
+        if amount <= 0:
+            return "Monto inválido", 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Vulnerabilidad 2 corregida: uso de parámetros en SQL
+        cursor.execute(
+            "UPDATE accounts SET balance = balance - ? WHERE user = ?",
+            (amount, account)
+        )
+        conn.commit()
+        conn.close()
+
+        return "Transferencia realizada"
+    except ValueError:
+        return "Entrada inválida", 400
+
+# Vulnerabilidad 3 corregida: Clave secreta en variable de entorno
+API_KEY = os.getenv("BANKING_API_KEY", "NO_KEY_DEFINED")
+
 @app.route("/apikey")
 def apikey():
     return f"Tu API key es: {API_KEY}"
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    # ✅ Debug desactivado en producción
+    app.run(debug=False)
